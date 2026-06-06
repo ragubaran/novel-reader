@@ -36,6 +36,7 @@ export default function Reader() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState('');
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(-1);
+  const [speechRate, setSpeechRate] = useState<number>(1.0);
 
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -240,6 +241,7 @@ export default function Reader() {
     }
 
     const utterance = new SpeechSynthesisUtterance(paragraphsToRead[index]);
+    utterance.rate = speechRate;
     
     if (selectedVoice) {
       const voice = voices.find(v => v.name === selectedVoice);
@@ -538,6 +540,35 @@ export default function Reader() {
                   ))}
                 </select>
               )}
+              <select
+                value={speechRate}
+                onChange={(e) => {
+                  const newRate = Number(e.target.value);
+                  setSpeechRate(newRate);
+                  if (isSpeaking && currentParagraphIndex >= 0) {
+                    speakParagraph(currentParagraphIndex);
+                  }
+                }}
+                style={{
+                  background: 'var(--panel-bg)',
+                  color: 'var(--text-color)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  padding: '4px',
+                  fontSize: '0.75rem',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+                title="Speech Speed"
+              >
+                <option value={0.5}>0.5x</option>
+                <option value={0.75}>0.75x</option>
+                <option value={1.0}>1.0x (Normal)</option>
+                <option value={1.25}>1.25x</option>
+                <option value={1.5}>1.5x</option>
+                <option value={1.75}>1.75x</option>
+                <option value={2.0}>2.0x</option>
+              </select>
             </div>
           ) : (
             /* Standard Auto-scroll dropdown, plus a Read Aloud button if translated */
@@ -748,43 +779,77 @@ export default function Reader() {
           </div>
 
           {currentParagraphIndex >= 0 || isSpeaking ? (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Speech Controls:</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button
-                  onClick={isPaused ? resumeSpeaking : pauseSpeaking}
-                  style={{
-                    background: 'var(--accent-color)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '6px',
-                    width: '32px',
-                    height: '32px',
-                    cursor: 'pointer',
-                    fontSize: '0.85rem'
-                  }}
-                >
-                  {isPaused ? '▶' : '⏸'}
-                </button>
-                <button
-                  onClick={stopSpeaking}
-                  style={{
-                    background: 'none',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '6px',
-                    width: '32px',
-                    height: '32px',
-                    cursor: 'pointer',
-                    color: 'var(--text-color)',
-                    fontSize: '0.85rem'
-                  }}
-                >
-                  ⏹
-                </button>
-                {voices.length > 0 && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Speech Controls:</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button
+                    onClick={isPaused ? resumeSpeaking : pauseSpeaking}
+                    style={{
+                      background: 'var(--accent-color)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      width: '32px',
+                      height: '32px',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    {isPaused ? '▶' : '⏸'}
+                  </button>
+                  <button
+                    onClick={stopSpeaking}
+                    style={{
+                      background: 'none',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '6px',
+                      width: '32px',
+                      height: '32px',
+                      cursor: 'pointer',
+                      color: 'var(--text-color)',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    ⏹
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Speech Settings:</span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {voices.length > 0 && (
+                    <select
+                      value={selectedVoice}
+                      onChange={(e) => setSelectedVoice(e.target.value)}
+                      style={{
+                        background: 'var(--panel-bg)',
+                        color: 'var(--text-color)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '6px',
+                        padding: '6px',
+                        fontSize: '0.8rem',
+                        maxWidth: '120px',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {voices.map((v) => (
+                        <option key={v.name} value={v.name}>
+                          {v.name.slice(0, 12)}...
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <select
-                    value={selectedVoice}
-                    onChange={(e) => setSelectedVoice(e.target.value)}
+                    value={speechRate}
+                    onChange={(e) => {
+                      const newRate = Number(e.target.value);
+                      setSpeechRate(newRate);
+                      if (isSpeaking && currentParagraphIndex >= 0) {
+                        speakParagraph(currentParagraphIndex);
+                      }
+                    }}
                     style={{
                       background: 'var(--panel-bg)',
                       color: 'var(--text-color)',
@@ -792,20 +857,21 @@ export default function Reader() {
                       borderRadius: '6px',
                       padding: '6px',
                       fontSize: '0.8rem',
-                      maxWidth: '130px',
                       outline: 'none',
                       cursor: 'pointer'
                     }}
                   >
-                    {voices.map((v) => (
-                      <option key={v.name} value={v.name}>
-                        {v.name.slice(0, 15)}...
-                      </option>
-                    ))}
+                    <option value={0.5}>0.5x</option>
+                    <option value={0.75}>0.75x</option>
+                    <option value={1.0}>1.0x</option>
+                    <option value={1.25}>1.25x</option>
+                    <option value={1.5}>1.5x</option>
+                    <option value={1.75}>1.75x</option>
+                    <option value={2.0}>2.0x</option>
                   </select>
-                )}
+                </div>
               </div>
-            </div>
+            </>
           ) : (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
