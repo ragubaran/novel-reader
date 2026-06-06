@@ -30,6 +30,13 @@ export default function Reader() {
   const [autoScrollSpeed, setAutoScrollSpeed] = useState<number>(0); // 0 = stopped, 1-5 speed levels
   const [showSettings, setShowSettings] = useState(false);
 
+  // Text to speech states
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState('');
+  const [currentParagraphIndex, setCurrentParagraphIndex] = useState(-1);
+
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch the novel chapter data
@@ -165,6 +172,7 @@ export default function Reader() {
 
   // Navigate function
   const navigateToUrl = (url: string) => {
+    stopSpeaking();
     router.push(`/reader?url=${encodeURIComponent(url)}`);
   };
 
@@ -172,6 +180,106 @@ export default function Reader() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  // Load device voices
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const loadVoices = () => {
+        const allVoices = window.speechSynthesis.getVoices();
+        setVoices(allVoices);
+        // Find a default English voice, or fallback to first available
+        const defaultVoice = allVoices.find(v => v.lang.startsWith('en')) || allVoices[0];
+        if (defaultVoice) {
+          setSelectedVoice(defaultVoice.name);
+        }
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+
+  // Stop TTS if user activates Auto-scroll to prevent conflict
+  useEffect(() => {
+    if (autoScrollSpeed > 0 && (isSpeaking || currentParagraphIndex >= 0)) {
+      stopSpeaking();
+    }
+  }, [autoScrollSpeed]);
+
+  // Cleanup active speech on unmount
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const speakParagraph = (index: number) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+
+    // Turn off Auto Scroll if we speak
+    setAutoScrollSpeed(0);
+
+    const paragraphsToRead = translationMode === 'zh' ? paragraphs : (translatedParagraphs.length > 0 ? translatedParagraphs : paragraphs);
+    if (index < 0 || index >= paragraphsToRead.length) {
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentParagraphIndex(-1);
+      return;
+    }
+
+    setCurrentParagraphIndex(index);
+    setIsSpeaking(true);
+    setIsPaused(false);
+
+    // Scroll active paragraph to center smoothly
+    const el = document.getElementById(`para-${index}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    const utterance = new SpeechSynthesisUtterance(paragraphsToRead[index]);
+    
+    if (selectedVoice) {
+      const voice = voices.find(v => v.name === selectedVoice);
+      if (voice) utterance.voice = voice;
+    }
+
+    utterance.onend = () => {
+      speakParagraph(index + 1);
+    };
+
+    utterance.onerror = (e) => {
+      console.error('Speech error:', e);
+      setIsSpeaking(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const pauseSpeaking = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.pause();
+      setIsPaused(true);
+    }
+  };
+
+  const resumeSpeaking = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.resume();
+      setIsPaused(false);
+    }
+  };
+
+  const stopSpeaking = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentParagraphIndex(-1);
+    }
+  };
 
   // Initial load
   useEffect(() => {
@@ -365,31 +473,119 @@ export default function Reader() {
             )}
           </div>
 
-          {/* Auto-scroll HUD */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>Scroll:</span>
-            <select
-              value={autoScrollSpeed}
-              onChange={(e) => setAutoScrollSpeed(Number(e.target.value))}
-              style={{
-                background: 'var(--panel-bg)',
-                color: 'var(--text-color)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '6px',
-                padding: '4px',
-                fontSize: '0.8rem',
-                outline: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              <option value={0}>Off</option>
-              <option value={1}>Speed 1</option>
-              <option value={2}>Speed 2</option>
-              <option value={3}>Speed 3</option>
-              <option value={4}>Speed 4</option>
-              <option value={5}>Speed 5</option>
-            </select>
-          </div>
+          {/* Auto-scroll HUD or Text-to-Speech Controls */}
+          {currentParagraphIndex >= 0 || isSpeaking ? (
+            /* Speech Control Panel */
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                onClick={isPaused ? resumeSpeaking : pauseSpeaking}
+                style={{
+                  background: 'var(--accent-color)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  width: '28px',
+                  height: '28px',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                title={isPaused ? 'Resume' : 'Pause'}
+              >
+                {isPaused ? '▶' : '⏸'}
+              </button>
+              <button
+                onClick={stopSpeaking}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  width: '28px',
+                  height: '28px',
+                  cursor: 'pointer',
+                  color: 'var(--text-color)',
+                  fontSize: '0.8rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                title="Stop"
+              >
+                ⏹
+              </button>
+              {voices.length > 0 && (
+                <select
+                  value={selectedVoice}
+                  onChange={(e) => setSelectedVoice(e.target.value)}
+                  style={{
+                    background: 'var(--panel-bg)',
+                    color: 'var(--text-color)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    padding: '4px',
+                    fontSize: '0.75rem',
+                    maxWidth: '120px',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {voices.map((v) => (
+                    <option key={v.name} value={v.name}>
+                      {v.name.slice(0, 15)}...
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          ) : (
+            /* Standard Auto-scroll dropdown, plus a Read Aloud button if translated */
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {(translationMode === 'en' || translationMode === 'bilingual') && (
+                <button
+                  onClick={() => speakParagraph(0)}
+                  style={{
+                    background: 'none',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    padding: '6px 10px',
+                    cursor: 'pointer',
+                    color: 'var(--text-color)',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  🔊 Read
+                </button>
+              )}
+              <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>Scroll:</span>
+              <select
+                value={autoScrollSpeed}
+                onChange={(e) => setAutoScrollSpeed(Number(e.target.value))}
+                style={{
+                  background: 'var(--panel-bg)',
+                  color: 'var(--text-color)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  padding: '4px',
+                  fontSize: '0.8rem',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value={0}>Off</option>
+                <option value={1}>Speed 1</option>
+                <option value={2}>Speed 2</option>
+                <option value={3}>Speed 3</option>
+                <option value={4}>Speed 4</option>
+                <option value={5}>Speed 5</option>
+              </select>
+            </div>
+          )}
 
           {/* Dual vs Single Layout */}
           <button
@@ -551,31 +747,114 @@ export default function Reader() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Auto Scroll:</span>
-            <select
-              value={autoScrollSpeed}
-              onChange={(e) => setAutoScrollSpeed(Number(e.target.value))}
-              style={{
-                background: 'var(--panel-bg)',
-                color: 'var(--text-color)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '6px',
-                padding: '6px',
-                fontSize: '0.8rem',
-                outline: 'none',
-                cursor: 'pointer',
-                width: '120px'
-              }}
-            >
-              <option value={0}>Off</option>
-              <option value={1}>Speed 1</option>
-              <option value={2}>Speed 2</option>
-              <option value={3}>Speed 3</option>
-              <option value={4}>Speed 4</option>
-              <option value={5}>Speed 5</option>
-            </select>
-          </div>
+          {currentParagraphIndex >= 0 || isSpeaking ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Speech Controls:</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  onClick={isPaused ? resumeSpeaking : pauseSpeaking}
+                  style={{
+                    background: 'var(--accent-color)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    width: '32px',
+                    height: '32px',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  {isPaused ? '▶' : '⏸'}
+                </button>
+                <button
+                  onClick={stopSpeaking}
+                  style={{
+                    background: 'none',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    width: '32px',
+                    height: '32px',
+                    cursor: 'pointer',
+                    color: 'var(--text-color)',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  ⏹
+                </button>
+                {voices.length > 0 && (
+                  <select
+                    value={selectedVoice}
+                    onChange={(e) => setSelectedVoice(e.target.value)}
+                    style={{
+                      background: 'var(--panel-bg)',
+                      color: 'var(--text-color)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '6px',
+                      padding: '6px',
+                      fontSize: '0.8rem',
+                      maxWidth: '130px',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {voices.map((v) => (
+                      <option key={v.name} value={v.name}>
+                        {v.name.slice(0, 15)}...
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Auto Scroll:</span>
+                <select
+                  value={autoScrollSpeed}
+                  onChange={(e) => setAutoScrollSpeed(Number(e.target.value))}
+                  style={{
+                    background: 'var(--panel-bg)',
+                    color: 'var(--text-color)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    padding: '6px',
+                    fontSize: '0.8rem',
+                    outline: 'none',
+                    cursor: 'pointer',
+                    width: '120px'
+                  }}
+                >
+                  <option value={0}>Off</option>
+                  <option value={1}>Speed 1</option>
+                  <option value={2}>Speed 2</option>
+                  <option value={3}>Speed 3</option>
+                  <option value={4}>Speed 4</option>
+                  <option value={5}>Speed 5</option>
+                </select>
+              </div>
+
+              {(translationMode === 'en' || translationMode === 'bilingual') && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Read Aloud:</span>
+                  <button
+                    onClick={() => {
+                      speakParagraph(0);
+                      setShowSettings(false);
+                    }}
+                    className="btn-primary"
+                    style={{
+                      padding: '6px 16px',
+                      fontSize: '0.8rem',
+                      borderRadius: '8px',
+                    }}
+                  >
+                    🔊 Read novel
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -681,14 +960,40 @@ export default function Reader() {
                   <div className="novel-content-cn glass reader-content-card" style={{ border: '1px solid var(--border-color)' }}>
                     <h3 style={{ marginBottom: '2rem', fontSize: '1.4rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>中文原文</h3>
                     {paragraphs.map((p, idx) => (
-                      <p key={idx} className="novel-paragraph">{p}</p>
+                      <p
+                        key={idx}
+                        id={`para-${idx}`}
+                        className="novel-paragraph"
+                        style={{
+                          backgroundColor: currentParagraphIndex === idx && translationMode === 'zh' ? 'rgba(211, 84, 0, 0.12)' : 'transparent',
+                          borderRadius: '6px',
+                          padding: '4px 8px',
+                          margin: '0 -8px 1.2em',
+                          transition: 'background-color 0.3s ease'
+                        }}
+                      >
+                        {p}
+                      </p>
                     ))}
                   </div>
                   <div className="novel-content-en glass reader-content-card" style={{ border: '1px solid var(--border-color)' }}>
                     <h3 style={{ marginBottom: '2rem', fontSize: '1.4rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>English Translation</h3>
                     {translatedParagraphs.length > 0 ? (
                       translatedParagraphs.map((p, idx) => (
-                        <p key={idx} className="novel-paragraph">{p}</p>
+                        <p
+                          key={idx}
+                          id={`para-${idx}`}
+                          className="novel-paragraph"
+                          style={{
+                            backgroundColor: currentParagraphIndex === idx && (translationMode === 'en' || translationMode === 'bilingual') ? 'rgba(211, 84, 0, 0.12)' : 'transparent',
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            margin: '0 -8px 1.2em',
+                            transition: 'background-color 0.3s ease'
+                          }}
+                        >
+                          {p}
+                        </p>
                       ))
                     ) : (
                       <div style={{ textAlign: 'center', padding: '4rem 1rem', opacity: 0.6 }}>
@@ -707,7 +1012,20 @@ export default function Reader() {
                   {translationMode === 'zh' && (
                     <div className="novel-content-cn">
                       {paragraphs.map((p, idx) => (
-                        <p key={idx} className="novel-paragraph">{p}</p>
+                        <p
+                          key={idx}
+                          id={`para-${idx}`}
+                          className="novel-paragraph"
+                          style={{
+                            backgroundColor: currentParagraphIndex === idx && translationMode === 'zh' ? 'rgba(211, 84, 0, 0.12)' : 'transparent',
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            margin: '0 -8px 1.2em',
+                            transition: 'background-color 0.3s ease'
+                          }}
+                        >
+                          {p}
+                        </p>
                       ))}
                     </div>
                   )}
@@ -717,7 +1035,20 @@ export default function Reader() {
                     <div className="novel-content-en">
                       {translatedParagraphs.length > 0 ? (
                         translatedParagraphs.map((p, idx) => (
-                          <p key={idx} className="novel-paragraph">{p}</p>
+                          <p
+                            key={idx}
+                            id={`para-${idx}`}
+                            className="novel-paragraph"
+                            style={{
+                              backgroundColor: currentParagraphIndex === idx && (translationMode === 'en' || translationMode === 'bilingual') ? 'rgba(211, 84, 0, 0.12)' : 'transparent',
+                              borderRadius: '6px',
+                              padding: '4px 8px',
+                              margin: '0 -8px 1.2em',
+                              transition: 'background-color 0.3s ease'
+                            }}
+                          >
+                            {p}
+                          </p>
                         ))
                       ) : (
                         <div style={{ textAlign: 'center', padding: '4rem 0' }}>
@@ -734,13 +1065,22 @@ export default function Reader() {
                   {translationMode === 'bilingual' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
                       {paragraphs.map((p, idx) => (
-                        <div key={idx} style={{
-                          borderLeft: '3px solid var(--accent-color)',
-                          paddingLeft: '1rem',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '0.5rem'
-                        }}>
+                        <div
+                          key={idx}
+                          id={`para-${idx}`}
+                          style={{
+                            borderLeft: `3px solid ${currentParagraphIndex === idx ? 'var(--accent-color)' : 'var(--border-color)'}`,
+                            paddingLeft: '1rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.5rem',
+                            backgroundColor: currentParagraphIndex === idx ? 'rgba(211, 84, 0, 0.08)' : 'transparent',
+                            borderRadius: '0 6px 6px 0',
+                            paddingTop: '6px',
+                            paddingBottom: '6px',
+                            transition: 'all 0.3s ease'
+                          }}
+                        >
                           <p className="novel-content-cn" style={{ textIndent: 0, opacity: 0.6, fontSize: '0.9em' }}>{p}</p>
                           <p className="novel-content-en" style={{ textIndent: 0, fontWeight: 500 }}>
                             {translatedParagraphs[idx] || '...'}
