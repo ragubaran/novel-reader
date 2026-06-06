@@ -324,7 +324,7 @@ export default function Home() {
               background: 'rgba(211, 84, 0, 0.03)'
             }}>
               <span style={{ textAlign: 'left', opacity: 0.85 }}>
-                💡 <strong>Save & Sync:</strong> Log in to sync your read novel chapters across all of your devices using our SQLite database storage.
+                💡 <strong>Save & Sync:</strong> Log in to sync your read novel chapters across all of your devices using our database.
               </span>
               <button onClick={() => { setAuthMode('login'); setShowAuthModal(true); }} style={{
                 background: 'none',
