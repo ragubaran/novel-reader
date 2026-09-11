@@ -304,11 +304,41 @@ export default function Home() {
           {/* Demo Chapter Quick Access */}
           <div style={{
             fontSize: '0.85rem',
-            opacity: 0.6,
             color: 'var(--text-color)',
-            marginBottom: '2.5rem'
+            marginBottom: '2rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            alignItems: 'center'
           }}>
-            Example: <span style={{ textDecoration: 'underline', cursor: 'pointer' }} onClick={loadDemo}>通天仙录 Chapter 277 (m.ilwxs.com)</span>
+            <span style={{ opacity: 0.6 }}>Try sample novels from supported sites:</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center' }}>
+              <button
+                type="button"
+                onClick={() => router.push(`/reader?url=${encodeURIComponent('https://wtr-lab.com/en/novel/75809/instantly-defeating-a-grandmaster-right-from-the-start-the-dynasty-is-completely-stunned/chapter-375?service=web')}`)}
+                className="btn-secondary"
+                style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+              >
+                📖 wtr-lab.com (Ch. 375 Decrypted)
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push(`/reader?url=${encodeURIComponent('https://m.ilwxs.com/shu/319716/178345928.html')}`)}
+                className="btn-secondary"
+                style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+              >
+                📖 m.ilwxs.com (Ch. 1 Raw Chinese)
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '6px', fontSize: '0.75rem', opacity: 0.7 }}>
+              <span>⚡ Infinite Auto-Continue</span>
+              <span>•</span>
+              <span>🌐 Auto Translate</span>
+              <span>•</span>
+              <span>📜 Auto-Reading</span>
+              <span>•</span>
+              <span>🔊 Voice Mode</span>
+            </div>
           </div>
 
           {/* Sync Prompt Banner */}
