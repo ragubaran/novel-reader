@@ -48,6 +48,11 @@ export default function Reader() {
   const [speechPitch, setSpeechPitch] = useState<number>(1.0);
   const [activeSpeechLoc, setActiveSpeechLoc] = useState<{ chapterIdx: number; paraIdx: number } | null>(null);
 
+  // Audiobook Generation States
+  const [generatingAudiobookIdx, setGeneratingAudiobookIdx] = useState<number | null>(null);
+  const [downloadingAudiobookIdx, setDownloadingAudiobookIdx] = useState<number | null>(null);
+  const [chapterAudiobookUrls, setChapterAudiobookUrls] = useState<Record<number, string>>({});
+
   // Active chapter in viewport (for HUD and URL sync)
   const [activeChapterIndex, setActiveChapterIndex] = useState<number>(0);
 
@@ -234,6 +239,90 @@ export default function Reader() {
       setLoadingNext(false);
     }
   }, [loadingNext]);
+
+  // On-the-fly Audiobook Converter for Chapter
+  const generateChapterAudiobook = async (chapIdx: number) => {
+    const chap = chaptersRef.current[chapIdx];
+    if (!chap) return;
+
+    if (chapterAudiobookUrls[chapIdx]) {
+      return chapterAudiobookUrls[chapIdx];
+    }
+
+    setGeneratingAudiobookIdx(chapIdx);
+    try {
+      const isEn = translationModeRef.current !== 'zh';
+      const paragraphsToUse = (isEn && chap.translatedParagraphs.length > 0)
+        ? chap.translatedParagraphs
+        : chap.paragraphs;
+
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paragraphs: paragraphsToUse,
+          title: chap.title,
+          lang: isEn ? 'en' : 'zh-CN',
+          download: false
+        })
+      });
+
+      if (!res.ok) throw new Error('Audiobook generation failed');
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      setChapterAudiobookUrls(prev => ({ ...prev, [chapIdx]: objectUrl }));
+      return objectUrl;
+    } catch (err) {
+      console.error('Failed to generate chapter audiobook', err);
+      alert('Failed to generate audiobook for this chapter.');
+    } finally {
+      setGeneratingAudiobookIdx(null);
+    }
+  };
+
+  // Download MP3 Audiobook for Chapter
+  const downloadChapterAudiobook = async (chapIdx: number) => {
+    const chap = chaptersRef.current[chapIdx];
+    if (!chap) return;
+
+    setDownloadingAudiobookIdx(chapIdx);
+    try {
+      const isEn = translationModeRef.current !== 'zh';
+      const paragraphsToUse = (isEn && chap.translatedParagraphs.length > 0)
+        ? chap.translatedParagraphs
+        : chap.paragraphs;
+
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paragraphs: paragraphsToUse,
+          title: chap.title,
+          lang: isEn ? 'en' : 'zh-CN',
+          download: true
+        })
+      });
+
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const safeName = (chap.title || 'Chapter').replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5]/g, '_');
+      a.download = `${safeName}_Audiobook.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error('Failed to download audiobook', err);
+      alert('Failed to download MP3 audiobook.');
+    } finally {
+      setDownloadingAudiobookIdx(null);
+    }
+  };
 
   // Load initial URL on mount or URL change
   useEffect(() => {
@@ -1130,6 +1219,67 @@ export default function Reader() {
                         }}
                       >
                         🔊 Listen
+                      </button>
+                    </div>
+
+                    {/* On-The-Fly Audiobook Controls */}
+                    <div style={{
+                      marginTop: '1rem',
+                      paddingTop: '0.85rem',
+                      borderTop: '1px solid var(--border-color)',
+                      display: 'flex',
+                      justify: 'center',
+                      alignItems: 'center',
+                      gap: '12px',
+                      flexWrap: 'wrap'
+                    }}>
+                      {!chapterAudiobookUrls[chapIdx] ? (
+                        <button
+                          onClick={() => generateChapterAudiobook(chapIdx)}
+                          disabled={generatingAudiobookIdx === chapIdx}
+                          style={{
+                            background: 'linear-gradient(135deg, #e67e22, #d35400)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '8px',
+                            padding: '6px 14px',
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            cursor: generatingAudiobookIdx === chapIdx ? 'not-allowed' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 8px rgba(230,126,34,0.3)'
+                          }}
+                        >
+                          {generatingAudiobookIdx === chapIdx ? '⏳ Concatenating MP3...' : '🎧 Convert to Audiobook'}
+                        </button>
+                      ) : (
+                        <audio
+                          controls
+                          src={chapterAudiobookUrls[chapIdx]}
+                          style={{ height: '36px', maxWidth: '320px' }}
+                        />
+                      )}
+
+                      <button
+                        onClick={() => downloadChapterAudiobook(chapIdx)}
+                        disabled={downloadingAudiobookIdx === chapIdx}
+                        style={{
+                          background: 'var(--accent-color)',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '8px',
+                          padding: '6px 14px',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          cursor: downloadingAudiobookIdx === chapIdx ? 'not-allowed' : 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        {downloadingAudiobookIdx === chapIdx ? '⏳ Preparing Download...' : '⬇ Download MP3'}
                       </button>
                     </div>
                   </div>
